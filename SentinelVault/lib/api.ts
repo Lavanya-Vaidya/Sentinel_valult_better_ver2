@@ -56,13 +56,27 @@ export async function getTransactions(chain: string, address: string) {
     }
 
     if (chain === "bitcoin") {
-      const res = await fetch(
-        `/api/bitcoin?action=transactions&address=${address}&limit=${config.limits.txLimit}`
-      );
-      if (!res.ok) throw new Error("Failed to fetch Bitcoin transactions");
+      try {
+        const res = await fetch(
+          `/api/bitcoin?action=transactions&address=${encodeURIComponent(address)}&limit=${config.limits.txLimit}`
+        );
 
-      const data = await res.json();
-      return { normal: data.txs || [] };
+        if (!res.ok) {
+          const error = await res
+            .json()
+            .catch(() => ({ error: res.statusText }));
+          console.warn("Bitcoin transactions API error:", error);
+          // Return empty instead of throwing so the UI still loads
+          return { normal: [] };
+        }
+
+        const data = await res.json();
+        return { normal: data.txs || [] };
+      } catch (err: any) {
+        console.error("Failed to fetch bitcoin transactions:", err);
+        // Return empty instead of crashing
+        return { normal: [] };
+      }
     }
 
     if (chain === "solana") {
@@ -110,20 +124,40 @@ export async function getBalance(chain: string, address: string): Promise<number
       const data = await res.json();
 
       if (data.status !== "1") {
-        throw new Error("Failed to fetch ETH balance");
+        // If result is a valid number string, still use it (some APIs return "0" status for 0 balance)
+        if (data.result && /^\d+$/.test(data.result)) {
+          return Number(data.result) / 1e18;
+        }
+        console.warn("ETH balance API returned non-success status:", data);
+        return 0;
       }
 
       return Number(data.result) / 1e18;
     }
 
     if (chain === "bitcoin") {
-      const res = await fetch(
-        `/api/bitcoin?action=balance&address=${address}`
-      );
-      if (!res.ok) throw new Error("Failed to fetch BTC balance");
+      try {
+        const res = await fetch(
+          `/api/bitcoin?action=balance&address=${encodeURIComponent(address)}`
+        );
 
-      const data = await res.json();
-      return data.final_balance / 1e8;
+        if (!res.ok) {
+          const error = await res
+            .json()
+            .catch(() => ({ error: res.statusText }));
+          console.warn("Bitcoin balance API error:", error);
+          return 0;
+        }
+
+        const data = await res.json();
+        if (data.final_balance === undefined) {
+          return 0;
+        }
+        return data.final_balance / 1e8;
+      } catch (err: any) {
+        console.error("Failed to fetch bitcoin balance:", err);
+        return 0;
+      }
     }
 
     if (chain === "solana") {

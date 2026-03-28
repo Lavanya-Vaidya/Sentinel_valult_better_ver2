@@ -5,7 +5,6 @@ import { QRCodeCanvas } from "qrcode.react";
 import { chains } from "../../lib/chains";
 import { encodeQR } from "../../lib/qr";
 import { estimateFees, FeeEstimate } from "../../lib/feeEstimate";
-import { validateTxInput } from "../../lib/validators";
 import type { FeeSpeed } from "../../lib/env";
 
 interface Props {
@@ -328,9 +327,14 @@ export default function CreateTransaction({ chain: parentChain, sender }: Props)
 
   const handleGenerate = async () => {
     // Validate input
-    const validation = validateTxInput(from, to, amount, chain);
-    if (!validation.valid) {
-      setError(validation.errors.join(". "));
+    if (!from || !to || !amount) {
+      setError("Please fill in all required fields");
+      setQr("");
+      return;
+    }
+
+    if (parseFloat(amount) <= 0) {
+      setError("Amount must be greater than 0");
       setQr("");
       return;
     }
@@ -421,31 +425,47 @@ export default function CreateTransaction({ chain: parentChain, sender }: Props)
       </p>
 
       {/* Chain selector */}
-      <select
-        id="tx-chain"
-        name="chain"
-        value={chain}
-        onChange={(e) => {
-          setChain(e.target.value);
-        }}
-        style={{
-          width: "100%",
-          background: "var(--bg-surface-lowest)",
-          border: "1px solid var(--ghost-border)",
-          borderRadius: "var(--radius-lg)",
-          padding: "0.625rem 1rem",
-          color: "var(--text-primary)",
-          fontFamily: "var(--font-label)",
-          fontSize: "0.8125rem",
-          cursor: "pointer",
-        }}
-      >
-        {Object.entries(chains).map(([key, val]) => (
-          <option key={key} value={key}>
-            {val.label}
-          </option>
-        ))}
-      </select>
+      <div>
+        <label
+          htmlFor="tx-chain"
+          style={{
+            fontFamily: "var(--font-label)",
+            fontSize: "0.6875rem",
+            color: "var(--text-muted)",
+            textTransform: "uppercase",
+            letterSpacing: "0.08em",
+            display: "block",
+            marginBottom: "var(--spacing-2)",
+          }}
+        >
+          Blockchain
+        </label>
+        <div style={{ position: "relative" }}>
+          <select
+            id="tx-chain"
+            name="chain"
+            value={chain}
+            onChange={(e) => setChain(e.target.value)}
+            style={{
+              width: "100%",
+              background: "var(--bg-surface-lowest)",
+              border: "1px solid var(--ghost-border)",
+              borderRadius: "var(--radius-lg)",
+              padding: "0.625rem 1rem",
+              color: "var(--text-primary)",
+              fontFamily: "var(--font-label)",
+              fontSize: "0.8125rem",
+              cursor: "pointer",
+            }}
+          >
+            {Object.entries(chains).map(([key, val]) => (
+              <option key={key} value={key}>
+                {val.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       {/* Recipient */}
       <div>
@@ -521,40 +541,28 @@ export default function CreateTransaction({ chain: parentChain, sender }: Props)
             marginBottom: "var(--spacing-2)",
           }}
         >
-          From Address {sender && "(Connected Wallet)"}
+          From Address
         </label>
-        <input
-          id="tx-from-address"
-          name="from-address"
-          placeholder={sender ? "Connected wallet address" : "Enter your address..."}
-          value={from}
-          onChange={(e) => !sender && setFrom(e.target.value)}
-          readOnly={!!sender}
-          style={{
-            width: "100%",
-            background: sender ? "var(--bg-surface-low)" : "var(--bg-surface-lowest)",
-            border: "1px solid var(--ghost-border)",
-            borderRadius: "var(--radius-lg)",
-            padding: "0.625rem 1rem",
-            fontFamily: "var(--font-body)",
-            fontSize: "0.875rem",
-            color: "var(--text-primary)",
-            opacity: sender ? 0.7 : 1,
-            cursor: sender ? "not-allowed" : "text",
-          }}
-        />
-        {sender && (
-          <p
+        <div style={{ position: "relative" }}>
+          <input
+            id="tx-from-address"
+            name="from-address"
+            placeholder="Enter your address..."
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
             style={{
-              fontFamily: "var(--font-label)",
-              fontSize: "0.625rem",
-              color: "var(--text-muted)",
-              margin: "var(--spacing-1) 0 0",
+              width: "100%",
+              background: "var(--bg-surface-lowest)",
+              border: "1px solid var(--ghost-border)",
+              borderRadius: "var(--radius-lg)",
+              padding: "0.625rem 1rem",
+              fontFamily: "var(--font-body)",
+              fontSize: "0.875rem",
+              color: "var(--text-primary)",
+              cursor: "text",
             }}
-          >
-            🔒 Using your connected wallet address for enhanced security
-          </p>
-        )}
+          />
+        </div>
       </div>
 
       {/* Amount + Speed */}

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef } from "react";
-import { useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/auth-context";
 import { getTransactions, getBalance } from "../lib/api";
 import DashboardLayout from "./components/DashboardLayout";
 import WalletInput from "./components/WalletInput";
@@ -11,16 +12,45 @@ import ScanAndBroadcast from "./components/ScanAndBroadcast";
 import TransactionList from "./components/TransactionList";
 import PortfolioHealth from "./components/PortfolioHealth";
 import VaultStatus from "./components/VaultStatus";
+
 export default function Home() {
+  const router = useRouter();
+  const { isAuthenticated, loading: authLoading } = useAuth();
+
+  // State declarations
   const [chain, setChain] = useState("ethereum");
   const [address, setAddress] = useState("");
   const [txs, setTxs] = useState<any>({});
   const [balance, setBalance] = useState(0);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
-  const [showWalletInput, setShowWalletInput] = useState(false);
   const walletInputRef = useRef<HTMLDivElement>(null);
 
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      router.push("/login");
+    }
+  }, [isAuthenticated, authLoading, router]);
+
+  // Show loading while checking auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block animate-spin size-12 border-4 border-slate-700 border-t-blue-500 rounded-full"></div>
+          <p className="text-slate-400 mt-4">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Don't render if not authenticated
+  if (!isAuthenticated) {
+    return null;
+  }
+
+  // Handle wallet loading
   const handleLoad = async (selectedChain: string, addr: string) => {
     setChain(selectedChain);
     setAddress(addr);
@@ -35,7 +65,6 @@ export default function Home() {
 
       setTxs(txData);
       setBalance(bal);
-      setShowWalletInput(false);
     } catch (err: any) {
       console.error("Failed to load wallet data:", err);
       setLoadError(err.message || "Failed to load wallet data. Please check the address and try again.");
@@ -46,8 +75,6 @@ export default function Home() {
   };
 
   const handleConnectWallet = () => {
-    setShowWalletInput(true);
-    // Scroll to wallet input on next render
     setTimeout(() => {
       walletInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
     }, 100);
@@ -74,8 +101,8 @@ export default function Home() {
         `}</style>
         {/* ── Left Column ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-6)" }}>
-          {/* Wallet Input (shown when Connect Wallet clicked or no address yet) */}
-          {(showWalletInput || !address) && (
+          {/* Wallet Input */}
+          {!address && (
             <div ref={walletInputRef} className="animate-fade-in">
               <WalletInput onSubmit={handleLoad} loading={loading} />
             </div>
@@ -96,7 +123,9 @@ export default function Home() {
                 gap: "var(--spacing-3)",
               }}
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 20 }}>error</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 20 }}>
+                error
+              </span>
               <span>{loadError}</span>
             </div>
           )}
