@@ -65,12 +65,8 @@ export default function TransactionRiskChecker({ sender, recipient, amount }: Tr
   }, [sender, recipient, amount]);
 
   const checkAPIHealth = async () => {
-    try {
-      const health = await checkRiskAPIHealth();
-      setApiHealthy(health.status === 'healthy' && health.model_loaded);
-    } catch (err) {
-      setApiHealthy(false);
-    }
+    const health = await checkRiskAPIHealth();
+    setApiHealthy(health.available && health.status === 'healthy' && health.model_loaded);
   };
 
   const analyzeTransaction = async (senderAddr: string, recipientAddr: string, amountEth: number) => {

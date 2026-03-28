@@ -37,13 +37,8 @@ export default function RiskAnalysis({ address, transactions, chain }: RiskAnaly
   }, [address, transactions, apiHealthy]);
 
   const checkAPIHealth = async () => {
-    try {
-      const health = await checkRiskAPIHealth();
-      setApiHealthy(health.status === 'healthy' && health.model_loaded);
-    } catch (err) {
-      setApiHealthy(false);
-      console.error('Risk API health check failed:', err);
-    }
+    const health = await checkRiskAPIHealth();
+    setApiHealthy(health.available && health.status === 'healthy' && health.model_loaded);
   };
 
   const analyzeRisk = async () => {
@@ -135,7 +130,7 @@ export default function RiskAnalysis({ address, transactions, chain }: RiskAnaly
               margin: "var(--spacing-2) 0 0 0",
             }}
           >
-            Please ensure the Crypto ML API is running on localhost:5000
+            Please ensure the Crypto ML Chainlink API is running on localhost:8000
           </p>
         </div>
       </div>

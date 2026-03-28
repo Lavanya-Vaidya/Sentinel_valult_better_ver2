@@ -21,17 +21,12 @@ export default function WalletInfo({ address, balance, txCount, chain }: any) {
 
   useEffect(() => {
     const loadRates = async () => {
-      try {
-        const liveRates = await getExchangeRates();
-        setRates(liveRates);
-        
-        // Calculate USD value
-        const rate = liveRates[chain as keyof ExchangeRates] || 0;
-        const usdValue = (balance * rate).toFixed(2);
-        setUsd(usdValue);
-      } catch (error) {
-        console.error("Failed to load rates:", error);
-      }
+      const liveRates = await getExchangeRates();
+      setRates(liveRates);
+
+      const rate = liveRates[chain as keyof ExchangeRates] || 0;
+      const usdValue = (balance * rate).toFixed(2);
+      setUsd(usdValue);
     };
 
     loadRates();

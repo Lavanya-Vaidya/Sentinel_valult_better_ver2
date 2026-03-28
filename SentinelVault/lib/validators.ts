@@ -52,7 +52,7 @@ export function isValidAmount(amount: string | number): boolean {
  * Validate amount doesn't exceed max decimals for chain
  */
 export function isValidAmountDecimals(amount: string, chain: string): boolean {
-  const decimals = chain === "bitcoin" ? 8 : 18;
+  const decimals = chain === "bitcoin" ? 8 : chain === "solana" ? 9 : 18;
   const parts = amount.split(".");
   if (parts.length === 2) {
     return parts[1].length <= decimals;
@@ -121,7 +121,7 @@ export function validateTxInput(
   }
 
   if (!isValidAmountDecimals(amount, chain)) {
-    const decimals = chain === "bitcoin" ? 8 : 18;
+    const decimals = chain === "bitcoin" ? 8 : chain === "solana" ? 9 : 18;
     errors.push(`Amount exceeds ${decimals} decimal places`);
   }
 

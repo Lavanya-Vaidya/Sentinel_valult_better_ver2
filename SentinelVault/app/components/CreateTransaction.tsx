@@ -13,12 +13,62 @@ interface Props {
   sender?: string;
 }
 
+interface TransactionRiskAnalysis {
+  transaction: {
+    sender: string;
+    recipient: string;
+    amount_eth: number;
+  };
+  combined_risk: {
+    risk_score: number;
+    risk_level: "low" | "medium" | "high" | "unknown";
+    recommendation: "safe" | "caution" | "risky" | "unknown";
+  };
+  chainlink?: {
+    transaction_hash: string;
+    logging_expected: boolean;
+    logged?: boolean;
+    verified?: boolean;
+  };
+  sender_risk: {
+    address: string;
+    risk_score: number;
+    risk_level: string;
+    is_fraud: boolean;
+    confidence: number;
+    probabilities: {
+      legitimate: number;
+      fraud: number;
+    };
+  };
+  recipient_risk: {
+    address: string;
+    risk_score: number;
+    risk_level: string;
+    is_fraud: boolean;
+    confidence: number;
+    probabilities: {
+      legitimate: number;
+      fraud: number;
+    };
+  };
+}
+
+interface ChainlinkStatus {
+  state: "idle" | "pending" | "logged" | "failed";
+  transactionHash: string | null;
+  verified: boolean;
+  message: string;
+}
+
 const SPEED_OPTIONS: FeeSpeed[] = ["slow", "normal", "fast"];
 const SPEED_LABELS: Record<FeeSpeed, string> = {
   slow: "Slow",
   normal: "Normal",
   fast: "Fast",
 };
+const HIGH_RISK_THRESHOLD = 70;
+const BLOCKING_RISK_THRESHOLD = 90;
 
 export default function CreateTransaction({ chain: parentChain, sender }: Props) {
   const [chain, setChain] = useState(parentChain || "ethereum");
@@ -32,9 +82,16 @@ export default function CreateTransaction({ chain: parentChain, sender }: Props)
   const [feeEstimate, setFeeEstimate] = useState<FeeEstimate | null>(null);
   const [feeLoading, setFeeLoading] = useState(false);
 
-  const [riskAnalysis, setRiskAnalysis] = useState<any>(null);
+  const [riskAnalysis, setRiskAnalysis] = useState<TransactionRiskAnalysis | null>(null);
   const [riskLoading, setRiskLoading] = useState(false);
   const [showRiskWarning, setShowRiskWarning] = useState(false);
+  const [showHighRiskModal, setShowHighRiskModal] = useState(false);
+  const [chainlinkStatus, setChainlinkStatus] = useState<ChainlinkStatus>({
+    state: "idle",
+    transactionHash: null,
+    verified: false,
+    message: "",
+  });
 
   // Update from address when sender prop changes
   useEffect(() => {
@@ -60,7 +117,7 @@ export default function CreateTransaction({ chain: parentChain, sender }: Props)
     return amountNum;
   };
 
-  const analyzeTransactionRisk = async () => {
+  const analyzeTransactionRisk = async (): Promise<TransactionRiskAnalysis | null> => {
     if (!from || !to || !amount) return null;
     
     setRiskLoading(true);
@@ -77,23 +134,39 @@ export default function CreateTransaction({ chain: parentChain, sender }: Props)
         }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        setRiskAnalysis(data);
-        
-        // Show warning if high risk
-        if (data.combined_risk?.risk_level === 'high') {
-          setShowRiskWarning(true);
-        } else {
-          setShowRiskWarning(false);
-        }
-        
-        return data;
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.error || 'Risk analysis service is unavailable');
       }
+
+      const data = await response.json();
+      setRiskAnalysis(data);
+      setShowRiskWarning((data.combined_risk?.risk_score || 0) >= HIGH_RISK_THRESHOLD);
+      setChainlinkStatus({
+        state: data.chainlink?.logged ? "logged" : data.chainlink?.transaction_hash ? "pending" : "idle",
+        transactionHash: data.chainlink?.transaction_hash || null,
+        verified: Boolean(data.chainlink?.verified),
+        message: data.chainlink?.logged
+          ? data.chainlink?.verified
+            ? "Risk prediction logged through the Chainlink path."
+            : "Risk prediction logged. Waiting for Chainlink verification."
+          : data.chainlink?.transaction_hash
+          ? "Risk prediction sent to the Chainlink logging path."
+          : "",
+      });
+      return data;
     } catch (error) {
       console.error('Risk analysis failed:', error);
       setRiskAnalysis(null);
       setShowRiskWarning(false);
+      setShowHighRiskModal(false);
+      setChainlinkStatus({
+        state: "failed",
+        transactionHash: null,
+        verified: false,
+        message: "Chainlink logging path is unavailable.",
+      });
+      setError(error instanceof Error ? error.message : "Risk analysis failed");
     } finally {
       setRiskLoading(false);
     }
@@ -136,6 +209,8 @@ export default function CreateTransaction({ chain: parentChain, sender }: Props)
   // Auto-analyze risk when user fills in transaction details
   useEffect(() => {
     if (from && to && amount && parseFloat(amount) > 0) {
+      setQr("");
+
       // Debounce risk analysis to avoid too many API calls
       const timeoutId = setTimeout(() => {
         analyzeTransactionRisk();
@@ -146,8 +221,107 @@ export default function CreateTransaction({ chain: parentChain, sender }: Props)
       // Clear risk analysis if inputs are incomplete
       setRiskAnalysis(null);
       setShowRiskWarning(false);
+      setShowHighRiskModal(false);
+      setQr("");
+      setChainlinkStatus({
+        state: "idle",
+        transactionHash: null,
+        verified: false,
+        message: "",
+      });
     }
   }, [from, to, amount]);
+
+  useEffect(() => {
+    if (!chainlinkStatus.transactionHash || chainlinkStatus.state !== "pending") {
+      return;
+    }
+
+    let cancelled = false;
+    let attempt = 0;
+    const maxAttempts = 6;
+
+    const pollLogs = async () => {
+      try {
+        const response = await fetch(
+          `/api/risk/logs?transaction_hash=${encodeURIComponent(chainlinkStatus.transactionHash)}&limit=20`
+        );
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch Chainlink logs");
+        }
+
+        const data = await response.json();
+        const log = data.logs?.[0];
+
+        if (cancelled) {
+          return;
+        }
+
+        if (log) {
+          setChainlinkStatus({
+            state: "logged",
+            transactionHash: log.transaction_hash,
+            verified: Boolean(log.verified),
+            message: log.verified
+              ? "Risk prediction logged through the Chainlink path."
+              : "Risk prediction logged. Waiting for Chainlink verification.",
+          });
+          return;
+        }
+
+        attempt += 1;
+        if (attempt >= maxAttempts) {
+          setChainlinkStatus((current) => ({
+            ...current,
+            state: "failed",
+            verified: false,
+            message: "Risk prediction completed, but no Chainlink log was confirmed yet.",
+          }));
+          return;
+        }
+
+        setTimeout(pollLogs, 1000);
+      } catch (_error) {
+        if (!cancelled) {
+          setChainlinkStatus((current) => ({
+            ...current,
+            state: "failed",
+            verified: false,
+            message: "Unable to confirm Chainlink logging.",
+          }));
+        }
+      }
+    };
+
+    const timer = setTimeout(pollLogs, 600);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [chainlinkStatus.transactionHash, chainlinkStatus.state]);
+
+  const buildQrTransaction = async (riskData: TransactionRiskAnalysis) => {
+    const payload = await (chains as any)[chain].buildTx({
+      from,
+      to,
+      amount,
+      speed,
+    });
+
+    const qrData = {
+      chain,
+      payload,
+      riskAnalysis: {
+        riskScore: riskData.combined_risk.risk_score,
+        riskLevel: riskData.combined_risk.risk_level,
+        recommendation: riskData.combined_risk.recommendation,
+        timestamp: new Date().toISOString(),
+      },
+    };
+
+    setQr(encodeQR(qrData));
+  };
 
   const handleGenerate = async () => {
     // Validate input
@@ -163,60 +337,41 @@ export default function CreateTransaction({ chain: parentChain, sender }: Props)
     setLoading(true);
 
     try {
-      // Step 1: Analyze transaction risk
-      console.log('Analyzing transaction risk...');
       const riskData = await analyzeTransactionRisk();
-      
-      // Step 2: Check if transaction is too risky
-      if (riskData && riskData.combined_risk?.risk_level === 'high' && riskData.combined_risk?.risk_score > 90) {
-        setError(`⚠️ High Risk Transaction Detected! Risk Score: ${riskData.combined_risk.risk_score.toFixed(1)}. Consider using a different recipient address.`);
-        setLoading(false);
+      if (!riskData) {
+        setError("Risk analysis must complete before generating a QR code.");
         return;
       }
 
-      // Step 3: Build transaction if risk is acceptable
-      console.log('Building transaction...');
-      const payload = await (chains as any)[chain].buildTx({
-        from,
-        to,
-        amount,
-        speed,
-      });
-      
-      // Step 4: Generate QR code with risk info embedded
-      const qrData = {
-        chain,
-        payload,
-        riskAnalysis: riskData ? {
-          riskScore: riskData.combined_risk.risk_score,
-          riskLevel: riskData.combined_risk.risk_level,
-          recommendation: riskData.combined_risk.recommendation,
-          timestamp: new Date().toISOString()
-        } : null
-      };
-      
-      setQr(encodeQR(qrData));
-      
-      // Log successful transaction with risk analysis
-      if (riskData) {
-        console.log(`Transaction QR generated with risk analysis:`, {
-          riskScore: riskData.combined_risk.risk_score,
-          riskLevel: riskData.combined_risk.risk_level,
-          recommendation: riskData.combined_risk.recommendation
-        });
+      if ((riskData.combined_risk?.risk_score || 0) >= BLOCKING_RISK_THRESHOLD) {
+        setShowHighRiskModal(true);
+        return;
       }
-      
-    } catch (e: any) {
-      setError(e.message || "Failed to build transaction");
+
+      await buildQrTransaction(riskData);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to build transaction");
     } finally {
       setLoading(false);
     }
   };
 
-  const getFeeDisplay = (): string => {
-    if (!feeEstimate) return "Loading...";
-    const feeValue = feeEstimate[speed];
-    return `${feeValue} ${feeEstimate.unit}`;
+  const handleGenerateAnyway = async () => {
+    if (!riskAnalysis) {
+      return;
+    }
+
+    setShowHighRiskModal(false);
+    setLoading(true);
+    setError("");
+
+    try {
+      await buildQrTransaction(riskAnalysis);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to build transaction");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -511,6 +666,55 @@ export default function CreateTransaction({ chain: parentChain, sender }: Props)
         </div>
       )}
 
+      {showRiskWarning && riskAnalysis && (
+        <div
+          style={{
+            background: "rgba(255, 56, 56, 0.08)",
+            border: "1px solid rgba(255, 56, 56, 0.2)",
+            color: "var(--error)",
+            padding: "var(--spacing-3)",
+            borderRadius: "var(--radius-lg)",
+            fontFamily: "var(--font-body)",
+            fontSize: "0.8125rem",
+          }}
+        >
+          High-risk transfer detected for this amount and address pair. Review the score before generating the QR code.
+        </div>
+      )}
+
+      {chainlinkStatus.state !== "idle" && (
+        <div
+          style={{
+            background:
+              chainlinkStatus.state === "logged"
+                ? "rgba(76, 175, 80, 0.1)"
+                : chainlinkStatus.state === "pending"
+                ? "rgba(33, 150, 243, 0.1)"
+                : "rgba(255, 193, 7, 0.1)",
+            color:
+              chainlinkStatus.state === "logged"
+                ? "var(--success)"
+                : chainlinkStatus.state === "pending"
+                ? "var(--primary)"
+                : "var(--warning)",
+            padding: "var(--spacing-3)",
+            borderRadius: "var(--radius-lg)",
+            fontFamily: "var(--font-body)",
+            fontSize: "0.8125rem",
+          }}
+        >
+          <div style={{ fontWeight: 600, marginBottom: "var(--spacing-1)" }}>
+            Chainlink Logging
+          </div>
+          <div>{chainlinkStatus.message}</div>
+          {chainlinkStatus.transactionHash && (
+            <div style={{ marginTop: "var(--spacing-1)", opacity: 0.8 }}>
+              Tracking ID: {chainlinkStatus.transactionHash}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Risk Analysis Display */}
       {riskAnalysis && (
         <div
@@ -655,6 +859,100 @@ export default function CreateTransaction({ chain: parentChain, sender }: Props)
           >
             {qr}
           </pre>
+        </div>
+      )}
+
+      {showHighRiskModal && riskAnalysis && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(8, 10, 18, 0.68)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "var(--spacing-4)",
+            zIndex: 1000,
+          }}
+        >
+          <div
+            className="card"
+            style={{
+              width: "min(100%, 30rem)",
+              background: "var(--bg-surface-container)",
+              border: "1px solid rgba(255, 56, 56, 0.2)",
+              boxShadow: "0 24px 80px rgba(0, 0, 0, 0.35)",
+            }}
+          >
+            <h3
+              style={{
+                margin: 0,
+                fontFamily: "var(--font-headline)",
+                fontSize: "1rem",
+                color: "var(--error)",
+              }}
+            >
+              High Risk Transaction Warning
+            </h3>
+            <p
+              style={{
+                margin: "var(--spacing-3) 0",
+                fontFamily: "var(--font-body)",
+                fontSize: "0.875rem",
+                color: "var(--text-primary)",
+              }}
+            >
+              The Crypto ML analysis flagged this transfer as very high risk before QR generation.
+            </p>
+            <p
+              style={{
+                margin: 0,
+                fontFamily: "var(--font-label)",
+                fontSize: "0.8125rem",
+                color: "var(--text-muted)",
+              }}
+            >
+              Score: {riskAnalysis.combined_risk.risk_score.toFixed(1)}/100
+              {" · "}
+              Level: {riskAnalysis.combined_risk.risk_level}
+              {" · "}
+              Recommendation: {riskAnalysis.combined_risk.recommendation}
+            </p>
+            <div
+              style={{
+                display: "flex",
+                gap: "var(--spacing-3)",
+                marginTop: "var(--spacing-5)",
+                flexWrap: "wrap",
+              }}
+            >
+              <button
+                onClick={() => setShowHighRiskModal(false)}
+                style={{
+                  flex: "1 1 10rem",
+                  padding: "0.75rem 1rem",
+                  borderRadius: "var(--radius-lg)",
+                  border: "1px solid var(--ghost-border)",
+                  background: "var(--bg-surface-lowest)",
+                  color: "var(--text-primary)",
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleGenerateAnyway}
+                className="btn-primary"
+                style={{
+                  flex: "1 1 10rem",
+                  background: "var(--error)",
+                  color: "white",
+                }}
+              >
+                Generate Anyway
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

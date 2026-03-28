@@ -9,6 +9,12 @@ export interface ExchangeRates {
   solana: number;
 }
 
+export const FALLBACK_RATES: ExchangeRates = {
+  ethereum: 3500,
+  bitcoin: 67000,
+  solana: 180,
+};
+
 // Cache to avoid excessive API calls
 let ratesCache: ExchangeRates | null = null;
 let cacheTimestamp = 0;
@@ -42,26 +48,20 @@ export async function getExchangeRates(): Promise<ExchangeRates> {
     const data = await response.json();
 
     ratesCache = {
-      ethereum: data.ethereum || 3500,
-      bitcoin: data.bitcoin || 67000,
-      solana: data.solana || 180,
+      ethereum: data.ethereum || FALLBACK_RATES.ethereum,
+      bitcoin: data.bitcoin || FALLBACK_RATES.bitcoin,
+      solana: data.solana || FALLBACK_RATES.solana,
     };
 
     cacheTimestamp = now;
     return ratesCache;
   } catch (error) {
-    console.error("Failed to fetch exchange rates:", error);
-
     // Return cached rates even if stale, or fallback values
     if (ratesCache) {
       return ratesCache;
     }
 
-    return {
-      ethereum: 3500,
-      bitcoin: 67000,
-      solana: 180,
-    };
+    return FALLBACK_RATES;
   }
 }
 

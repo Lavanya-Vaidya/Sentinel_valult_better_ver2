@@ -33,6 +33,13 @@ interface RiskPrediction {
   };
 }
 
+interface RiskAPIHealth {
+  status: string;
+  model_loaded: boolean;
+  available: boolean;
+  error?: string;
+}
+
 export async function predictRisk(features: RiskFeatures): Promise<RiskPrediction> {
   try {
     const response = await fetch('/api/risk', {
@@ -54,18 +61,36 @@ export async function predictRisk(features: RiskFeatures): Promise<RiskPredictio
   }
 }
 
-export async function checkRiskAPIHealth(): Promise<{ status: string; model_loaded: boolean }> {
+export async function checkRiskAPIHealth(): Promise<RiskAPIHealth> {
   try {
     const response = await fetch('/api/risk');
     
     if (!response.ok) {
-      throw new Error(`Health check failed: ${response.statusText}`);
+      const errorData = await response.json().catch(() => null);
+
+      return {
+        status: 'unavailable',
+        model_loaded: false,
+        available: false,
+        error: errorData?.error || `Health check failed: ${response.status} ${response.statusText}`.trim(),
+      };
     }
 
-    return await response.json();
+    const data = await response.json();
+
+    return {
+      status: data.status || 'unknown',
+      model_loaded: Boolean(data.model_loaded),
+      available: true,
+      error: data.error,
+    };
   } catch (error) {
-    console.error('Error checking risk API health:', error);
-    throw error;
+    return {
+      status: 'unavailable',
+      model_loaded: false,
+      available: false,
+      error: error instanceof Error ? error.message : 'Unable to reach risk API',
+    };
   }
 }
 

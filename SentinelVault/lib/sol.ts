@@ -7,15 +7,16 @@ import {
 import { FeeSpeed, config } from "./env";
 import { getSolFeeEstimate, selectSolFee } from "./feeEstimate";
 import { validateTxInput } from "./validators";
+import { parseAmountToBaseUnits } from "./amount";
 
 export async function buildSolTx(
   from: string,
   to: string,
-  amount: number,
+  amount: string,
   speed: FeeSpeed = "normal"
 ) {
   // Validate inputs
-  const validation = validateTxInput(from, to, amount.toString(), "solana");
+  const validation = validateTxInput(from, to, amount, "solana");
   if (!validation.valid) {
     throw new Error(`Validation error: ${validation.errors.join(", ")}`);
   }
@@ -29,11 +30,13 @@ export async function buildSolTx(
     const feeEstimate = await getSolFeeEstimate();
     const priorityFee = selectSolFee(feeEstimate, speed);
 
+    const lamports = parseAmountToBaseUnits(amount, 9);
+
     const tx = new Transaction().add(
       SystemProgram.transfer({
         fromPubkey: fromPub,
         toPubkey: toPub,
-        lamports: amount * 1e9,
+        lamports,
       })
     );
 

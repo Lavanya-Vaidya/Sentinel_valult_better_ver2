@@ -1,27 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { getExchangeRates } from "../../lib/rates";
 
 export default function StatusBar() {
   const [btcPrice, setBtcPrice] = useState<number | null>(null);
-  const [priceError, setPriceError] = useState<string>("");
 
   useEffect(() => {
     const fetchBtcPrice = async () => {
-      try {
-        const response = await fetch("/api/rates");
-        if (!response.ok) {
-          throw new Error(`Failed to fetch rates: ${response.status}`);
-        }
-        const data = await response.json();
-        console.log("StatusBar - Fetched rates:", data);
-        setBtcPrice(data.bitcoin);
-        setPriceError("");
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : "Unknown error";
-        console.error("StatusBar - Failed to fetch BTC price:", msg);
-        setPriceError(msg);
-      }
+      const rates = await getExchangeRates();
+      setBtcPrice(rates.bitcoin);
     };
 
     // Fetch immediately
@@ -64,7 +52,7 @@ export default function StatusBar() {
           <span
             style={{
               fontWeight: 600,
-              color: priceError ? "var(--error)" : "var(--text-primary)",
+              color: "var(--text-primary)",
               opacity: btcPrice ? 1 : 0.5,
             }}
           >

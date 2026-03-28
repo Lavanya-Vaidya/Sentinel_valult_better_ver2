@@ -2,12 +2,71 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const CRYPTO_ML_API_URL = process.env.CRYPTO_ML_API_URL || 'http://localhost:8000';
 
-// Update to point to local crypto-ml directory (now inside security_vault)
-const LOCAL_CRYPTO_ML_PATH = '../crypto-ml';
+type RiskPayload = {
+  risk_score?: number;
+  risk_level?: string;
+  is_fraud?: boolean;
+  confidence?: number;
+  probabilities?: {
+    legitimate?: number;
+    fraud?: number;
+  };
+  combined_risk?: {
+    risk_score?: number;
+    risk_level?: string;
+    recommendation?: string;
+  };
+  sender_risk?: RiskPayload;
+  recipient_risk?: RiskPayload;
+};
+
+type ChainlinkLog = {
+  transaction_hash: string;
+  verified: boolean;
+};
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function confirmChainlinkLog(transactionHash: string): Promise<{ logged: boolean; verified: boolean }> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      const response = await fetch(`${CRYPTO_ML_API_URL}/logs?limit=25`, {
+        method: 'GET',
+        cache: 'no-store',
+      });
+
+      if (response.ok) {
+        const logs: ChainlinkLog[] = await response.json();
+        const match = logs.find((log) => log.transaction_hash === transactionHash);
+
+        if (match) {
+          return {
+            logged: true,
+            verified: Boolean(match.verified),
+          };
+        }
+      }
+    } catch (_error) {
+      // Ignore retry errors and fall through to the next attempt.
+    }
+
+    await wait(400);
+  }
+
+  return {
+    logged: false,
+    verified: false,
+  };
+}
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    const transactionHash = body.transaction_hash || `tx_${Date.now()}`;
+    const transactionRequest = {
+      ...body,
+      transaction_hash: transactionHash,
+    };
     
     // Get individual address predictions for better analysis
     const [senderResponse, recipientResponse, transactionResponse] = await Promise.all([
@@ -24,7 +83,7 @@ export async function POST(request: NextRequest) {
       fetch(`${CRYPTO_ML_API_URL}/predict_transaction`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify(transactionRequest),
       }),
     ]);
 
@@ -37,11 +96,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const transactionData = await transactionResponse.json();
+    const transactionData: RiskPayload = await transactionResponse.json();
     
     // Get individual predictions (use fallback if they fail)
-    let senderData = transactionData;
-    let recipientData = transactionData;
+    let senderData: RiskPayload = transactionData.sender_risk || transactionData;
+    let recipientData: RiskPayload = transactionData.recipient_risk || transactionData;
     
     if (senderResponse.ok) {
       senderData = await senderResponse.json();
@@ -50,7 +109,15 @@ export async function POST(request: NextRequest) {
     if (recipientResponse.ok) {
       recipientData = await recipientResponse.json();
     }
+
+    const chainlinkStatus = await confirmChainlinkLog(transactionHash);
     
+    const combinedRisk = transactionData.combined_risk || {
+      risk_score: transactionData.risk_score || 0,
+      risk_level: transactionData.risk_level || 'unknown',
+      recommendation: getRecommendation(transactionData.risk_level || 'unknown'),
+    };
+
     // Transform the response to match the expected frontend structure
     const transformedResponse = {
       transaction: {
@@ -58,10 +125,16 @@ export async function POST(request: NextRequest) {
         recipient: body.recipient,
         amount_eth: body.amount_eth,
       },
+      chainlink: {
+        transaction_hash: transactionHash,
+        logging_expected: true,
+        logged: chainlinkStatus.logged,
+        verified: chainlinkStatus.verified,
+      },
       combined_risk: {
-        risk_score: transactionData.risk_score || 0,
-        risk_level: transactionData.risk_level || 'unknown',
-        recommendation: getRecommendation(transactionData.risk_level || 'unknown'),
+        risk_score: combinedRisk.risk_score || 0,
+        risk_level: combinedRisk.risk_level || 'unknown',
+        recommendation: combinedRisk.recommendation || getRecommendation(combinedRisk.risk_level || 'unknown'),
       },
       sender_risk: {
         address: body.sender,

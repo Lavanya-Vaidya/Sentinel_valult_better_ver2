@@ -2,9 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const CRYPTO_ML_API_URL = process.env.CRYPTO_ML_API_URL || 'http://localhost:8000';
 
-// Update to point to local crypto-ml directory (now inside security_vault)
-const LOCAL_CRYPTO_ML_PATH = '../crypto-ml';
-
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();

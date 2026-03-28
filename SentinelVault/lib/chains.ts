@@ -20,12 +20,12 @@ export const chains = {
   bitcoin: {
     label: "Bitcoin",
     buildTx: async ({ from, to, amount, speed = "normal" }: BuildTxParams) =>
-      await buildBtcTx(from, to, Number(amount), speed),
+      await buildBtcTx(from, to, String(amount), speed),
   },
 
   solana: {
     label: "Solana",
     buildTx: async ({ from, to, amount, speed = "normal" }: BuildTxParams) =>
-      await buildSolTx(from, to, Number(amount), speed),
+      await buildSolTx(from, to, String(amount), speed),
   },
 };

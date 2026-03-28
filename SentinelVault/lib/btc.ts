@@ -3,17 +3,18 @@ import { fetchUtxos } from "./utxo";
 import { getBtcFeeEstimate, selectBtcFee } from "./feeEstimate";
 import { validateTxInput } from "./validators";
 import { FeeSpeed, config } from "./env";
+import { parseAmountToBaseUnits } from "./amount";
 
 const DUST_THRESHOLD = config.bitcoin.dustThreshold;
 
 export async function buildBtcTx(
   from: string,
   to: string,
-  amount: number,
+  amount: string,
   speed: FeeSpeed = "normal"
 ) {
   // Validate inputs
-  const validation = validateTxInput(from, to, amount.toString(), "bitcoin");
+  const validation = validateTxInput(from, to, amount, "bitcoin");
   if (!validation.valid) {
     throw new Error(`Validation error: ${validation.errors.join(", ")}`);
   }
@@ -27,7 +28,7 @@ export async function buildBtcTx(
     if (!utxos.length) throw new Error("No UTXOs found for this address.");
 
     const feeRate = selectBtcFee(feeEstimate, speed);
-    const amountSats = Math.floor(amount * 1e8);
+    const amountSats = Number(parseAmountToBaseUnits(amount, 8));
 
     const psbt = new bitcoin.Psbt({ network: bitcoin.networks.bitcoin });
     let inputSum = 0;
