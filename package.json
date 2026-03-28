@@ -7,8 +7,7 @@
   "type": "commonjs",
   "main": "index.js",
   "scripts": {
-    "dev": "./start-dev.command",
-    "dev:single": "./start-dev-single.sh",
+    "dev": "node start-dev.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   }
 }
