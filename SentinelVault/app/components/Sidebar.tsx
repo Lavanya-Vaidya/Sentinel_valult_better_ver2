@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
+import { useAuth } from "@/lib/auth-context";
 
 const NAV_ITEMS = [
   { icon: "dashboard",        label: "Dashboard",     href: "/" },
@@ -18,6 +19,8 @@ interface SidebarProps {
 
 export default function Sidebar({ onConnectWallet }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { logout, user } = useAuth();
   const [theme, setTheme] = useState("dark");
 
   useEffect(() => {
@@ -41,6 +44,11 @@ export default function Sidebar({ onConnectWallet }: SidebarProps) {
     setTheme(nextTheme);
     document.documentElement.setAttribute("data-theme", nextTheme);
     localStorage.setItem("theme", nextTheme);
+  };
+
+  const handleLogout = () => {
+    logout();
+    router.push('/login');
   };
 
   return (
@@ -145,6 +153,40 @@ export default function Sidebar({ onConnectWallet }: SidebarProps) {
 
       {/* ── Bottom section ── */}
       <div style={{ padding: "0 var(--spacing-4)" }}>
+        {/* User Info */}
+        {user && (
+          <div
+            style={{
+              padding: "var(--spacing-3)",
+              marginBottom: "var(--spacing-4)",
+              borderRadius: "var(--radius-lg)",
+              background: "var(--primary-container)",
+              border: "1px solid var(--primary)",
+            }}
+          >
+            <p
+              style={{
+                fontSize: "0.75rem",
+                color: "var(--text-muted)",
+                marginBottom: "0.25rem",
+              }}
+            >
+              Logged in as:
+            </p>
+            <p
+              style={{
+                fontSize: "0.8125rem",
+                color: "var(--primary)",
+                fontWeight: 600,
+                wordBreak: "break-word",
+              }}
+              title={user.email}
+            >
+              {user.email.length > 20 ? user.email.substring(0, 17) + '...' : user.email}
+            </p>
+          </div>
+        )}
+
         {/* Bottom Actions */}
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-2)", marginBottom: "var(--spacing-4)" }}>
           <button
@@ -162,6 +204,23 @@ export default function Sidebar({ onConnectWallet }: SidebarProps) {
               {theme === "dark" ? "light_mode" : "dark_mode"}
             </span>
             {theme === "dark" ? "Light Mode" : "Dark Mode"}
+          </button>
+          <button
+            onClick={handleLogout}
+            className="btn-ghost"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--spacing-2)",
+              justifyContent: "flex-start",
+              padding: "0.5rem var(--spacing-2)",
+              color: "var(--error)",
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+              logout
+            </span>
+            Logout
           </button>
         </div>
       </div>

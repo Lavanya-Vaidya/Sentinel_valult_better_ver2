@@ -53,6 +53,28 @@ export function selectEthFee(estimate: FeeEstimate, speed: FeeSpeed): string {
 // ──── Bitcoin ────────────────────────────────────────────────────────────
 
 export async function getBtcFeeEstimate(): Promise<FeeEstimate> {
+  // Try Blockstream first (more reliable)
+  try {
+    const response = await fetch(config.bitcoin.blockstreamUrl + "/fee-estimates");
+    const data = await response.json();
+
+    // Blockstream returns { "1": rate, "2": rate, ... , "25": rate } (sat/vB for N-block target)
+    const fast = data["1"] || data["2"] || 5;
+    const normal = data["3"] || data["6"] || 2;
+    const slow = data["6"] || data["25"] || 1;
+
+    return {
+      slow: Math.ceil(slow).toString(),
+      normal: Math.ceil(normal).toString(),
+      fast: Math.ceil(fast * 1.2).toString(),
+      unit: "sat/b",
+      timestamp: Date.now(),
+    };
+  } catch (e) {
+    console.warn("Blockstream fee estimation failed, trying mempool.space");
+  }
+
+  // Fallback to mempool.space
   try {
     const response = await fetch(config.bitcoin.mempoolUrl + "/v1/fees/recommended");
     const data = await response.json();
@@ -65,7 +87,7 @@ export async function getBtcFeeEstimate(): Promise<FeeEstimate> {
       timestamp: Date.now(),
     };
   } catch (e) {
-    console.warn("Failed to fetch BTC fees, using fallback");
+    console.warn("All BTC fee APIs failed, using fallback");
     return {
       slow: "1",
       normal: "2",

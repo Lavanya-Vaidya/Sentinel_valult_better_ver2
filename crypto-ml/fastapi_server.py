@@ -11,6 +11,8 @@ import logging
 import time
 from datetime import datetime
 import json
+from auth_routes import router as auth_router, init_auth_db
+from db_auth import close_db_pool
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -33,6 +35,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include authentication router
+app.include_router(auth_router)
+
+# Initialize database on startup
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database on startup"""
+    logger.info("📊 Starting up... Initializing authentication database")
+    if init_auth_db():
+        logger.info("✅ Authentication database initialized successfully")
+    else:
+        logger.warning("⚠️ Failed to initialize authentication database")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Close database connections on shutdown"""
+    logger.info("🛑 Shutting down... Closing database connections")
+    close_db_pool()
 
 # Load the trained model and features
 try:
