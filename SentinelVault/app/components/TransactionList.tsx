@@ -8,9 +8,7 @@ export default function TransactionList({ txs, chain, address }: any) {
 
   const data = rawData.filter((tx: any) => {
     if (chain !== "bitcoin") return true;
-    const inputs = tx.inputs?.map((i: any) => i.prev_out?.addr) || [];
-    const outputs = tx.out?.map((o: any) => o.addr) || [];
-    return inputs.includes(address) || outputs.includes(address);
+    return (tx.from?.toLowerCase() === address.toLowerCase() || tx.to?.toLowerCase() === address.toLowerCase());
   });
 
   // Take only latest 4 for the compact card
@@ -230,23 +228,13 @@ function parseTx(tx: any, chain: string, type: string, address: string) {
   }
 
   if (chain === "bitcoin") {
-    const inputs = tx.inputs?.map((i: any) => i.prev_out?.addr).filter(Boolean) || [];
-    const outputs = tx.out?.map((o: any) => o.addr).filter(Boolean) || [];
-    const isSender = inputs.includes(address);
-    const isReceiver = outputs.includes(address);
-
-    let value = 0;
-    if (isSender) {
-      value = tx.out?.filter((o: any) => o.addr !== address).reduce((s: number, o: any) => s + o.value, 0) || 0;
-    } else if (isReceiver) {
-      value = tx.out?.filter((o: any) => o.addr === address).reduce((s: number, o: any) => s + o.value, 0) || 0;
-    }
+    const isSender = tx.from?.toLowerCase() === address.toLowerCase();
 
     return {
-      hash: tx.hash,
-      from: inputs[0] || "Unknown",
-      to: outputs[0] || "Unknown",
-      value: `${(value / 1e8).toFixed(5)} BTC`,
+      hash: tx.hash || "",
+      from: tx.from || "Unknown",
+      to: tx.to || "Unknown",
+      value: `${(Number(tx.value || 0) / 1e8).toFixed(5)} BTC`,
       extra: isSender ? "Sent" : "Received",
       type: isSender ? "sent" : "received",
     };

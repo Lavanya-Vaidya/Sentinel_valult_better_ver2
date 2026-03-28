@@ -83,26 +83,26 @@ export default function TransactionsPage() {
         extra = val === 0 ? "Contract Call" : "Internal Tx";
       }
     } else if (chain === "bitcoin") {
-      const inputs = tx.inputs?.map((i: any) => i.prev_out?.addr).filter(Boolean) || [];
-      const outputs = tx.out?.map((o: any) => o.addr).filter(Boolean) || [];
-      const isSender = inputs.includes(currentAddress);
-      const isReceiver = outputs.includes(currentAddress);
+      const isSender = tx.from?.toLowerCase() === addrLower;
       
-      let value = 0;
+      const val = Number(tx.value || 0) / 1e8;
+      valueStr = val > 0 ? `${val.toFixed(5)} BTC` : "0 BTC";
+      
       if (isSender) {
-        // Amount sent to others
-        value = tx.out?.filter((o: any) => o.addr !== currentAddress).reduce((s: number, o: any) => s + (o.value || 0), 0) || 0;
         type = "sent";
         extra = "Sent BTC";
-      } else if (isReceiver) {
-        // Amount received to us
-        value = tx.out?.filter((o: any) => o.addr === currentAddress).reduce((s: number, o: any) => s + (o.value || 0), 0) || 0;
+      } else {
         type = "received";
         extra = "Received BTC";
       }
-      from = inputs[0] || "Unknown";
-      to = outputs[0] || "Unknown";
-      valueStr = `${(value / 1e8).toFixed(5)} BTC`; // Trimmed to 5 decimals for UI neatness
+      
+      from = tx.from || "Unknown";
+      to = tx.to || "Unknown";
+      
+      // Override common fields using the unified proxy payload
+      hash = tx.hash || hash;
+      timestamp = tx.timeStamp ? Number(tx.timeStamp) : timestamp;
+      status = Number(tx.confirmations || 0) > 0 ? "confirmed" : "pending";
     }
 
     return { hash, timestamp, status, from, to, valueStr, type, extra };

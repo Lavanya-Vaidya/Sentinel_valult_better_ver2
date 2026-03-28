@@ -23,6 +23,20 @@ export default function ScanAndBroadcast() {
   const [error, setError] = useState("");
   const scannerRef = useRef<any>(null);
 
+  const safeStopScanner = useCallback((scannerObj: any) => {
+    if (!scannerObj) return;
+    try {
+      // Safely check state. State 2 is SCANNING in html5-qrcode.
+      // We only want to stop if it's actively scanning.
+      const state = scannerObj.getState?.();
+      if (state === 2) {
+        scannerObj.stop().catch(() => {});
+      }
+    } catch (e) {
+      // Ignore synchronous errors if the scanner is already stopped or paused
+    }
+  }, []);
+
   const handleDecoded = useCallback((raw: string) => {
     try {
       const data = decodeQR(raw.trim());
@@ -35,7 +49,7 @@ export default function ScanAndBroadcast() {
   }, []);
 
   const reset = useCallback(() => {
-    scannerRef.current?.stop().catch(() => {});
+    safeStopScanner(scannerRef.current);
     setScanState("idle");
     setDecoded(null);
     setTxHash("");
@@ -59,7 +73,7 @@ export default function ScanAndBroadcast() {
           { fps: 10, qrbox: { width: 280, height: 280 } },
           (text: string) => {
             handleDecoded(text);
-            scanner.stop().catch(() => {});
+            safeStopScanner(scanner);
           },
           () => {}
         );
@@ -73,9 +87,9 @@ export default function ScanAndBroadcast() {
 
     return () => {
       active = false;
-      scanner?.stop().catch(() => {});
+      safeStopScanner(scanner);
     };
-  }, [scanState, mode, handleDecoded]);
+  }, [scanState, mode, handleDecoded, safeStopScanner]);
 
   const handleBroadcast = async () => {
     if (!decoded) return;
@@ -197,7 +211,7 @@ export default function ScanAndBroadcast() {
             }}
           />
           <button
-            onClick={() => { scannerRef.current?.stop().catch(() => {}); setScanState("idle"); }}
+            onClick={() => { safeStopScanner(scannerRef.current); setScanState("idle"); }}
             className="btn-ghost"
             style={{ color: "var(--error)" }}
           >
