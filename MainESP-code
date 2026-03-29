@@ -1,0 +1,203 @@
+#include <TFT_eSPI.h>
+#include <SPI.h>
+#include <Keypad.h>
+
+#ifdef LOW
+#undef LOW
+#endif
+#ifdef HIGH
+#undef HIGH
+#endif
+
+#include "qrcodegen.hpp"
+using namespace qrcodegen;
+
+TFT_eSPI tft = TFT_eSPI();
+
+// ===== UART =====
+#define CAM_RX 16
+#define CAM_TX 17
+
+// ===== KEYPAD =====
+const byte ROWS = 4;
+const byte COLS = 4;
+
+byte rowPins[ROWS] = {13, 12, 14, 27};
+byte colPins[COLS] = {26, 25, 33, 32};
+
+char keys[ROWS][COLS] = {
+  {'1','2','3','A'},
+  {'4','5','6','B'},
+  {'7','8','9','C'},
+  {'*','0','#','D'}
+};
+
+Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
+
+// ===== LOGIN =====
+const char* MASTER_PIN = "1234";
+String enteredPin = "";
+bool authenticated = false;
+
+// ===== STATE =====
+bool scanRequested = false;
+bool qrGenerated = false;
+bool receivingPayload = false;
+
+String serialLine = "";
+String payload = "";
+
+// ===== UI =====
+void drawLogin() {
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+
+  tft.setCursor(20, 20);
+  tft.println("ENTER PIN");
+
+  tft.setCursor(20, 60);
+  tft.print("PIN: ");
+  for (int i = 0; i < 4; i++) {
+    if (i < enteredPin.length()) tft.print('*');
+    else tft.print('_');
+    tft.print(' ');
+  }
+}
+
+void drawWaiting() {
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+
+  tft.setCursor(20, 50);
+  tft.println("Waiting for QR...");
+}
+
+void drawQR(String text) {
+  const QrCode qr = QrCode::encodeText(text.c_str(), QrCode::Ecc::LOW);
+
+  int size = qr.getSize();
+  int scale = 4;
+
+  tft.fillScreen(TFT_WHITE);
+
+  for (int y = 0; y < size; y++) {
+    for (int x = 0; x < size; x++) {
+      if (qr.getModule(x, y)) {
+        tft.fillRect(x * scale + 20, y * scale + 20, scale, scale, TFT_BLACK);
+      }
+    }
+  }
+}
+
+// ===== UART =====
+void requestScan() {
+  scanRequested = true;
+  qrGenerated = false;
+  payload = "";
+  serialLine = "";
+
+  Serial.println(">>> SCAN SENT");
+  Serial2.println("SCAN");
+}
+
+void processLine(String line) {
+  line.trim();
+
+  Serial.print("<<< ");
+  Serial.println(line);
+
+  if (line == "ACK") {
+    Serial.println("ACK RECEIVED");
+    return;
+  }
+
+  if (line == "QR_START") {
+    receivingPayload = true;
+    payload = "";
+    return;
+  }
+
+  if (line == "QR_END") {
+    receivingPayload = false;
+
+    Serial.println("FULL PAYLOAD RECEIVED:");
+    Serial.println(payload);
+
+    drawQR(payload);
+
+    qrGenerated = true;
+    scanRequested = false;
+    return;
+  }
+
+  if (receivingPayload) {
+    payload += line;
+  }
+}
+
+void readUART() {
+  while (Serial2.available()) {
+    char c = Serial2.read();
+
+    if (c == '\n') {
+      processLine(serialLine);
+      serialLine = "";
+    } else if (c != '\r') {
+      serialLine += c;
+    }
+  }
+}
+
+// ===== SETUP =====
+void setup() {
+  Serial.begin(115200);
+  Serial2.begin(115200, SERIAL_8N1, CAM_RX, CAM_TX);
+
+  tft.init();
+  tft.setRotation(1);
+
+  drawLogin();
+}
+
+// ===== LOOP =====
+void loop() {
+  char key = keypad.getKey();
+
+  // LOGIN
+  if (!authenticated) {
+    if (key >= '0' && key <= '9') {
+      if (enteredPin.length() < 4) {
+        enteredPin += key;
+        drawLogin();
+      }
+
+      if (enteredPin.length() == 4) {
+        if (enteredPin == MASTER_PIN) {
+          authenticated = true;
+
+          drawWaiting();
+          delay(300);
+
+          requestScan();
+        } else {
+          enteredPin = "";
+          drawLogin();
+        }
+      }
+    }
+    return;
+  }
+
+  // RESET
+  if (key == '#') {
+    qrGenerated = false;
+    scanRequested = false;
+    drawWaiting();
+  }
+
+  if (scanRequested && !qrGenerated) {
+    readUART();
+  }
+}
